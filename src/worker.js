@@ -1,103 +1,76 @@
 import { AutoTokenizer, AutoModelForCausalLM, TextStreamer } from "@huggingface/transformers";
+import { ContextService } from "./services/contextService";
 
 const MODEL_ID = "onnx-community/Llama-3.2-1B-Instruct-q4f16";
-let tokenizer, model;
+let tokenizer, model, contextService;
 
-// Add debugging helper
-function sendDebugInfo(level, message, details = null) {
-  self.postMessage({
-    status: 'debug',
-    data: {
-      level,
-      message,
-      details,
-      timestamp: new Date().toISOString()
-    }
-  });
-}
-
-async function checkWebGPU() {
-  sendDebugInfo('debug', 'Checking WebGPU support');
-
-  const adapter = await navigator.gpu?.requestAdapter();
-  if (!adapter) {
-    sendDebugInfo('error', 'WebGPU adapter not found');
-    throw new Error("WebGPU not supported");
-  }
-
-  const device = await adapter.requestDevice();
-  if (!device) {
-    sendDebugInfo('error', 'Failed to get WebGPU device');
-    throw new Error("Failed to get WebGPU device");
-  }
-
-  // Log device info
-  const info = {
-    adapter: adapter.name,
-    features: [...device.features].map(f => f.toString()),
-    limits: Object.fromEntries(
-        Object.entries(device.limits)
-            .filter(([, value]) => typeof value !== 'function')
-    )
-  };
-
-  sendDebugInfo('info', 'WebGPU device initialized', info);
-  return device;
-}
+// ... (previous debug helper code) ...
 
 async function initialize() {
   try {
     sendDebugInfo('debug', 'Starting initialization');
     await checkWebGPU();
 
+    // Initialize context service
+    sendDebugInfo('info', 'Initializing context service');
+    contextService = new ContextService();
+    await contextService.initialize();
+    sendDebugInfo('debug', 'Context service initialized');
+
+    // Initialize model and tokenizer
     sendDebugInfo('info', 'Loading tokenizer');
     tokenizer = await AutoTokenizer.from_pretrained(MODEL_ID);
-    sendDebugInfo('debug', 'Tokenizer loaded', {
-      vocab_size: tokenizer.vocab_size,
-      model_max_length: tokenizer.model_max_length
-    });
 
     sendDebugInfo('info', 'Loading model');
-    const startTime = performance.now();
     model = await AutoModelForCausalLM.from_pretrained(MODEL_ID, {
       dtype: "q4f16",
       device: "webgpu",
       revision: "main",
       cache: true
     });
-    const loadTime = performance.now() - startTime;
-
-    sendDebugInfo('info', 'Model loaded successfully', {
-      loadTimeMs: Math.round(loadTime),
-      config: model.config
-    });
 
     return true;
   } catch (error) {
-    sendDebugInfo('error', 'Initialization failed', {
-      error: error.message,
-      stack: error.stack
-    });
+    sendDebugInfo('error', 'Initialization failed', { error });
     throw error;
   }
 }
 
-async function generate(messages) {
-  if (!tokenizer || !model) {
-    sendDebugInfo('error', 'Model not initialized');
-    throw new Error("Model not initialized");
+async function generate(messages, query) {
+  if (!tokenizer || !model || !contextService) {
+    throw new Error("Services not initialized");
   }
 
   try {
-    sendDebugInfo('debug', 'Starting generation', { messages });
+    sendDebugInfo('debug', 'Starting generation', { messages, query });
 
-    const inputs = tokenizer.apply_chat_template(messages, {
+    // Find relevant contexts
+    const relevantContexts = await contextService.findRelevantContexts(query);
+    sendDebugInfo('debug', 'Found relevant contexts', { contexts: relevantContexts });
+
+    // Prepare system message with contexts
+    let systemMessage = "You are a helpful AI assistant. ";
+    if (relevantContexts.length > 0) {
+      systemMessage += "Use the following context to help answer the question:\n\n";
+      relevantContexts.forEach((ctx, i) => {
+        systemMessage += `Context ${i + 1}:\n${ctx.text}\n\n`;
+      });
+    }
+
+    // Add system message to the conversation
+    const conversationWithContext = [
+      { role: "system", content: systemMessage },
+      ...messages
+    ];
+
+    const inputs = tokenizer.apply_chat_template(conversationWithContext, {
       add_generation_prompt: true,
       return_dict: true
     });
 
-    sendDebugInfo('debug', 'Input tokens prepared', {
+    sendDebugInfo('debug', 'Input prepared', {
       inputLength: inputs.input_ids.length,
+      systemMessage,
       truncated: inputs.input_ids.length >= tokenizer.model_max_length
     });
 
@@ -116,21 +89,45 @@ async function generate(messages) {
       do_sample: true,
       temperature: 0.7,
       top_p: 0.9,
-      streamer,
-      stop_sequences: ["Human:", "Assistant:", "\n\n"]
+      streamer
     });
 
     const generateTime = performance.now() - startTime;
     sendDebugInfo('info', 'Generation completed', {
-      generateTimeMs: Math.round(generateTime)
+      generateTimeMs: Math.round(generateTime),
+      contextsUsed: relevantContexts.length
     });
 
   } catch (error) {
-    sendDebugInfo('error', 'Generation failed', {
-      error: error.message,
-      stack: error.stack
-    });
+    sendDebugInfo('error', 'Generation failed', { error });
     throw error;
+  }
+}
+
+// Add context management commands
+async function handleContextCommand(type, data) {
+  if (!contextService) {
+    throw new Error("Context service not initialized");
+  }
+
+  switch (type) {
+    case "add":
+      const id = await contextService.addContext(data.id, data.text, data.metadata);
+      return { id };
+
+    case "remove":
+      const removed = contextService.removeContext(data.id);
+      return { removed };
+
+    case "clear":
+      contextService.clearContexts();
+      return { cleared: true };
+
+    case "list":
+      return { contexts: contextService.getAllContexts() };
+
+    default:
+      throw new Error(`Unknown context command: ${type}`);
   }
 }
 
@@ -149,19 +146,22 @@ self.addEventListener("message", async ({ data: { type, data } }) => {
         break;
 
       case "generate":
-        await generate(data);
+        await generate(data.messages, data.query);
+        break;
+
+      case "context":
+        const result = await handleContextCommand(data.command, data.data);
+        self.postMessage({
+          status: 'context_update',
+          data: result
+        });
         break;
 
       default:
         throw new Error(`Unknown message type: ${type}`);
     }
   } catch (error) {
-    sendDebugInfo('error', 'Worker error handler', {
-      type,
-      error: error.message,
-      stack: error.stack
-    });
-
+    sendDebugInfo('error', 'Worker error handler', { error });
     self.postMessage({
       status: 'error',
       data: error.message || 'An unknown error occurred'

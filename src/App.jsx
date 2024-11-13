@@ -1,11 +1,11 @@
 import { MessageList } from './components/MessageList';
 import { ChatInput } from './components/ChatInput';
 import { StatusBar } from './components/StatusBar';
+import { ContextPanel } from './components/ContextPanel';
 import { DebugPanel } from './components/DebugPanel';
 import { useChat } from './hooks/useChat';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { DebugProvider, useDebug } from './context/DebugContext';
-import React from "react";
+import { DebugProvider } from './context/DebugContext';
 
 export default function App() {
     return (
@@ -19,59 +19,17 @@ export default function App() {
 }
 
 function AppContent() {
-    const { messages, status, error, sendMessage, initializeWorker } = useChat();
-    const { addLog } = useDebug();
-
-    // Log WebGPU support status on component mount
-    React.useEffect(() => {
-        const checkWebGPU = async () => {
-            if (!navigator.gpu) {
-                addLog('error', 'WebGPU not supported in this browser');
-                return;
-            }
-
-            try {
-                const adapter = await navigator.gpu.requestAdapter();
-                if (!adapter) {
-                    addLog('error', 'No WebGPU adapter found');
-                    return;
-                }
-
-                const device = await adapter.requestDevice();
-                addLog('info', 'WebGPU initialized successfully', {
-                    adapterName: adapter.name,
-                    features: [...device.features].map(f => f.toString()),
-                    limits: Object.fromEntries(
-                        Object.entries(device.limits)
-                            .filter(([, value]) => typeof value !== 'function')
-                    )
-                });
-            } catch (error) {
-                addLog('error', 'WebGPU initialization failed', {
-                    error: error.message,
-                    stack: error.stack
-                });
-            }
-        };
-
-        checkWebGPU();
-    }, [addLog]);
-
-    if (!navigator.gpu) {
-        return (
-            <main className="h-screen flex items-center justify-center">
-                <div className="text-center p-8">
-                    <h1 className="text-2xl font-bold text-red-600 mb-4">
-                        WebGPU is not supported
-                    </h1>
-                    <p className="text-gray-600 max-w-md mx-auto">
-                        This application requires WebGPU support. Please use a compatible browser
-                        like Chrome Canary or Edge Canary with WebGPU flags enabled.
-                    </p>
-                </div>
-            </main>
-        );
-    }
+    const {
+        messages,
+        contexts,
+        status,
+        error,
+        sendMessage,
+        initializeWorker,
+        addContext,
+        removeContext,
+        clearContexts
+    } = useChat();
 
     return (
         <main className="h-screen flex flex-col bg-gray-50">
@@ -90,33 +48,31 @@ function AppContent() {
                 </div>
             </header>
 
-            <MessageList
-                messages={messages}
-                onMessageRendered={(message) => {
-                    addLog('debug', 'Message rendered', {
-                        role: message.role,
-                        contentLength: message.content.length
-                    });
-                }}
-            />
+            <div className="flex-1 flex">
+                <div className="flex-1 flex flex-col">
+                    <MessageList messages={messages} />
 
-            <footer className="border-t bg-white">
-                <ChatInput
-                    onSubmit={(message) => {
-                        addLog('info', 'User message submitted', { message });
-                        sendMessage(message);
-                    }}
+                    <footer className="border-t bg-white">
+                        <ChatInput
+                            onSubmit={sendMessage}
+                            disabled={status !== 'ready'}
+                        />
+                        <StatusBar
+                            status={status}
+                            error={error}
+                            onInitialize={initializeWorker}
+                        />
+                    </footer>
+                </div>
+
+                <ContextPanel
+                    contexts={contexts}
+                    onAddContext={addContext}
+                    onRemoveContext={removeContext}
+                    onClearContexts={clearContexts}
                     disabled={status !== 'ready'}
                 />
-                <StatusBar
-                    status={status}
-                    error={error}
-                    onInitialize={() => {
-                        addLog('info', 'Model initialization requested');
-                        initializeWorker();
-                    }}
-                />
-            </footer>
+            </div>
         </main>
     );
 }
