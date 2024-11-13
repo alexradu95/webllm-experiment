@@ -1,10 +1,11 @@
-import { useState, useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { useWorker } from './useWorker';
 import { useDebug } from '../context/DebugContext';
 
 export function useChat() {
     const [messages, setMessages] = useState([]);
     const [contexts, setContexts] = useState([]);
+    const [contextError, setContextError] = useState(null);
     const { status, error, initializeWorker, generateResponse, sendContextCommand } = useWorker();
     const { addLog } = useDebug();
 
@@ -15,7 +16,9 @@ export function useChat() {
     const updateLastMessage = useCallback((content) => {
         setMessages(prev => {
             const newMessages = [...prev];
-            newMessages[newMessages.length - 1].content += content;
+            if (newMessages.length > 0) {
+                newMessages[newMessages.length - 1].content += content;
+            }
             return newMessages;
         });
     }, []);
@@ -23,42 +26,58 @@ export function useChat() {
     const sendMessage = useCallback(async (userMessage) => {
         if (!userMessage.trim()) return;
 
-        addLog('info', 'Processing message', { userMessage });
-        addMessage('user', userMessage);
-        addMessage('assistant', '');
+        try {
+            addLog('info', 'Processing message', { userMessage });
+            addMessage('user', userMessage);
+            addMessage('assistant', '');
 
-        const cleanup = generateResponse(
-            messages.concat({ role: 'user', content: userMessage }),
-            userMessage,
-            updateLastMessage
-        );
-
-        return cleanup;
+            await generateResponse(
+                messages.concat({ role: 'user', content: userMessage }),
+                userMessage,
+                updateLastMessage
+            );
+        } catch (error) {
+            addLog('error', 'Failed to send message', { error });
+            // Update the last message to show the error
+            updateLastMessage('Sorry, an error occurred while generating the response.');
+        }
     }, [messages, generateResponse, addMessage, updateLastMessage, addLog]);
 
     const addContext = useCallback(async (text, metadata = {}) => {
         try {
-            const result = await sendContextCommand('add', {
-                id: `ctx_${Date.now()}`,
+            setContextError(null);
+            const id = `ctx_${Date.now()}`;
+            await sendContextCommand('add', {
+                id,
                 text,
-                metadata
+                metadata,
+                createdAt: new Date().toISOString()
             });
-            addLog('info', 'Context added', result);
-            refreshContexts();
-            return result;
+
+            const updatedContexts = await sendContextCommand('list');
+            setContexts(updatedContexts);
+            addLog('info', 'Context added successfully', { id });
+            return id;
         } catch (error) {
+            const errorMessage = error.message.includes('Context too long')
+                ? error.message
+                : 'Failed to add context. Please try with shorter text.';
+
+            setContextError(errorMessage);
             addLog('error', 'Failed to add context', { error });
-            throw error;
+            throw new Error(errorMessage);
         }
     }, [sendContextCommand, addLog]);
 
     const removeContext = useCallback(async (id) => {
         try {
-            const result = await sendContextCommand('remove', { id });
-            addLog('info', 'Context removed', result);
-            refreshContexts();
-            return result;
+            setContextError(null);
+            await sendContextCommand('remove', { id });
+            const updatedContexts = await sendContextCommand('list');
+            setContexts(updatedContexts);
+            addLog('info', 'Context removed successfully', { id });
         } catch (error) {
+            setContextError('Failed to remove context');
             addLog('error', 'Failed to remove context', { error });
             throw error;
         }
@@ -66,24 +85,13 @@ export function useChat() {
 
     const clearContexts = useCallback(async () => {
         try {
-            const result = await sendContextCommand('clear');
-            addLog('info', 'Contexts cleared', result);
+            setContextError(null);
+            await sendContextCommand('clear');
             setContexts([]);
-            return result;
+            addLog('info', 'All contexts cleared');
         } catch (error) {
+            setContextError('Failed to clear contexts');
             addLog('error', 'Failed to clear contexts', { error });
-            throw error;
-        }
-    }, [sendContextCommand, addLog]);
-
-    const refreshContexts = useCallback(async () => {
-        try {
-            const result = await sendContextCommand('list');
-            setContexts(result.contexts);
-            addLog('debug', 'Contexts refreshed', { count: result.contexts.length });
-            return result.contexts;
-        } catch (error) {
-            addLog('error', 'Failed to refresh contexts', { error });
             throw error;
         }
     }, [sendContextCommand, addLog]);
@@ -91,13 +99,13 @@ export function useChat() {
     return {
         messages,
         contexts,
+        contextError,
         status,
         error,
         sendMessage,
         initializeWorker,
         addContext,
         removeContext,
-        clearContexts,
-        refreshContexts
+        clearContexts
     };
 }

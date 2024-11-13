@@ -28,7 +28,7 @@ export function useWorker() {
         addLog('info', 'Starting worker initialization');
     };
 
-    const generateResponse = (messages, onUpdate) => {
+    const generateResponse = (messages, userMessage, onUpdate) => {
         if (status !== 'ready') {
             const error = new Error('Worker not ready');
             addLog('error', 'Generation attempted while worker not ready');
@@ -43,13 +43,44 @@ export function useWorker() {
         });
 
         const handleMessage = ({ data }) => {
-            if (data.status === 'update') {
+            if (data.status === 'update' && typeof onUpdate === 'function') {
                 onUpdate(data.output);
             }
         };
 
         worker.current.addEventListener('message', handleMessage);
         return () => worker.current.removeEventListener('message', handleMessage);
+    };
+
+    const sendContextCommand = (command, data) => {
+        return new Promise((resolve, reject) => {
+            if (status !== 'ready') {
+                reject(new Error('Worker not ready'));
+                return;
+            }
+
+            const messageId = Date.now();
+
+            const handleResponse = ({ data: responseData }) => {
+                if (responseData.messageId === messageId) {
+                    worker.current.removeEventListener('message', handleResponse);
+                    if (responseData.status === 'error') {
+                        reject(new Error(responseData.data));
+                    } else {
+                        resolve(responseData.data);
+                    }
+                }
+            };
+
+            worker.current.addEventListener('message', handleResponse);
+
+            worker.current.postMessage({
+                type: 'context',
+                command,
+                data,
+                messageId
+            });
+        });
     };
 
     useEffect(() => {
@@ -68,7 +99,6 @@ export function useWorker() {
                     break;
 
                 case 'debug':
-                    // Forward debug messages to the debug context
                     addLog(data.data.level, data.data.message, data.data.details);
                     break;
             }
@@ -82,6 +112,7 @@ export function useWorker() {
         status,
         error,
         initializeWorker,
-        generateResponse
+        generateResponse,
+        sendContextCommand
     };
 }
