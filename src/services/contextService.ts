@@ -1,4 +1,4 @@
-import { pipeline } from '@huggingface/transformers';
+import { pipeline, Pipeline } from '@huggingface/transformers';
 
 // We'll use a smaller model for embeddings to save resources
 const EMBEDDING_MODEL = "Xenova/all-MiniLM-L6-v2";
@@ -24,11 +24,10 @@ export interface IContextService {
     getAllContexts(): Context[];
 }
 
-type EmbedderFunction = (input: string, options?: any) => Promise<{ data: Float32Array }>;
-
-interface FeatureExtractionPipeline {
+type FeatureExtractionPipeline = Pipeline & {
     (input: string, options?: any): Promise<{ data: Float32Array }>;
-}
+    processor?: any; // Adding processor as optional to satisfy the Pipeline interface
+};
 
 export class ContextService implements IContextService {
     private embedder: FeatureExtractionPipeline | null;
@@ -43,7 +42,7 @@ export class ContextService implements IContextService {
 
     async initialize(): Promise<void> {
         try {
-            this.embedder = await pipeline('feature-extraction', EMBEDDING_MODEL) as FeatureExtractionPipeline;
+            this.embedder = (await pipeline('feature-extraction', EMBEDDING_MODEL)) as FeatureExtractionPipeline;
             this.initialized = true;
         } catch (error) {
             console.error('Failed to initialize embedder:', error);
