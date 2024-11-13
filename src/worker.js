@@ -1,4 +1,5 @@
 import { AutoTokenizer, AutoModelForCausalLM, TextStreamer } from "@huggingface/transformers";
+import { addContext, removeContext, clearContexts, listContexts } from './services/contextHandler';
 
 // Configuration
 const MODEL_ID = "onnx-community/Llama-3.2-1B-Instruct-q4f16";
@@ -21,7 +22,6 @@ const GENERATION_CONFIG = {
 // Global state
 let tokenizer = null;
 let model = null;
-let contexts = [];
 
 function sendDebugInfo(level, message, details = null) {
   self.postMessage({
@@ -44,6 +44,7 @@ async function getTokenCount(text) {
 }
 
 async function selectRelevantContexts(query) {
+  const contexts = listContexts();
   if (contexts.length === 0) return "";
 
   const queryTokens = await getTokenCount(query);
@@ -165,53 +166,20 @@ async function handleContextCommand(command, data, messageId) {
   try {
     let result;
     switch (command) {
-      case 'add': {
-        if (!tokenizer) {
-          throw new Error("Tokenizer not initialized");
-        }
-
-        const tokenCount = await getTokenCount(data.text);
-        if (tokenCount > MAX_CONTEXT_LENGTH) {
-          throw new Error(`Context too long: ${tokenCount} tokens exceeds limit of ${MAX_CONTEXT_LENGTH}. Please use shorter text.`);
-        }
-
-        const existingTokens = contexts.reduce((sum, ctx) => sum + ctx.tokens, 0);
-        if (existingTokens + tokenCount > MAX_TOTAL_LENGTH) {
-          throw new Error(`Adding this context would exceed total token limit of ${MAX_TOTAL_LENGTH}. Please remove some existing contexts first.`);
-        }
-
-        contexts.push({
-          id: data.id,
-          text: data.text,
-          tokens: tokenCount,
-          metadata: data.metadata,
-          createdAt: data.createdAt || new Date().toISOString()
-        });
-
-        result = {
-          success: true,
-          id: data.id,
-          tokenCount,
-          totalTokens: existingTokens + tokenCount
-        };
+      case 'add':
+        result = addContext(data, tokenizer, MAX_CONTEXT_LENGTH, MAX_TOTAL_LENGTH);
         break;
-      }
 
       case 'remove':
-        contexts = contexts.filter(ctx => ctx.id !== data.id);
-        result = {
-          success: true,
-          totalTokens: contexts.reduce((sum, ctx) => sum + ctx.tokens, 0)
-        };
+        result = removeContext(data.id);
         break;
 
       case 'clear':
-        contexts = [];
-        result = { success: true, totalTokens: 0 };
+        result = clearContexts();
         break;
 
       case 'list':
-        result = contexts;
+        result = listContexts();
         break;
 
       default:
