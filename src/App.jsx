@@ -34,7 +34,7 @@ function AppContent() {
 
     return (
         <main className="h-screen flex flex-col bg-gray-50">
-            <header className="bg-white border-b px-4 py-3 flex justify-between items-center">
+            <header className="bg-white border-b px-4 py-3 flex justify-between items-center shadow">
                 <h1 className="text-xl font-semibold text-gray-800">Llama 3.2 Chat</h1>
                 <div className="flex items-center space-x-2 text-sm">
                     <span className={`px-2 py-1 rounded ${
@@ -49,31 +49,31 @@ function AppContent() {
                 </div>
             </header>
 
-            <div className="flex-1 flex">
-                <div className="flex-1 flex flex-col">
+            <div className="flex-1 flex flex-col overflow-hidden">
+                <div className="flex-1 overflow-y-auto p-4">
                     <MessageList messages={messages} />
-
-                    <footer className="border-t bg-white">
-                        <ChatInput
-                            onSubmit={sendMessage}
-                            disabled={status !== 'ready'}
-                        />
-                        <StatusBar
-                            status={status}
-                            error={error}
-                            onInitialize={initializeWorker}
-                        />
-                    </footer>
                 </div>
 
-                <ContextPanel
-                    contexts={contexts}
-                    onAddContext={addContext}
-                    onRemoveContext={removeContext}
-                    onClearContexts={clearContexts}
-                    disabled={status !== 'ready'}
-                />
+                <footer className="border-t bg-white p-4">
+                    <ChatInput
+                        onSubmit={sendMessage}
+                        disabled={status !== 'ready'}
+                    />
+                    <StatusBar
+                        status={status}
+                        error={error}
+                        onInitialize={initializeWorker}
+                    />
+                </footer>
             </div>
+
+            <ContextPanel
+                contexts={contexts}
+                onAddContext={addContext}
+                onRemoveContext={removeContext}
+                onClearContexts={clearContexts}
+                disabled={status !== 'ready'}
+            />
 
             <LoadingProgress status={status} error={error} />
         </main>
