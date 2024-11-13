@@ -1,7 +1,7 @@
 import { DebugPanel } from './components/DebugPanel';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { DebugProvider } from './context/DebugContext';
-import AppContent from './components/AppContent';
+import AppContent from './components/AppContent.tsx';
 
 export default function App() {
     return (

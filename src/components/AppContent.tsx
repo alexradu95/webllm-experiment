@@ -1,3 +1,4 @@
+import React from 'react';
 import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
 import { StatusBar } from './StatusBar';
@@ -5,7 +6,7 @@ import { ContextPanel } from './ContextPanel';
 import { LoadingProgress } from './LoadingProgress';
 import { useChat } from '../hooks/useChat';
 
-export default function AppContent() {
+const AppContent: React.FC = () => {
     const {
         messages,
         contexts,
@@ -65,3 +66,5 @@ export default function AppContent() {
         </main>
     );
 }
+
+export default AppContent;
