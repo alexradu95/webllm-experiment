@@ -1,5 +1,5 @@
-import { DebugPanel } from './components/DebugPanel';
-import { ErrorBoundary } from './components/ErrorBoundary';
+import { DebugPanel } from './components/DebugPanel.tsx';
+import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import { DebugProvider } from './context/DebugContext';
 import AppContent from './components/AppContent.tsx';
 

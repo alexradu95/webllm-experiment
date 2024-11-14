@@ -9,7 +9,7 @@ export function useWorker() {
 
     useEffect(() => {
         if (!worker.current) {
-            worker.current = new Worker(new URL('../worker.js', import.meta.url), { type: 'module' });
+            worker.current = new Worker(new URL('../worker.ts', import.meta.url), { type: 'module' });
             worker.current.postMessage({ type: 'check' });
             addLog('info', 'Worker initialized');
         }

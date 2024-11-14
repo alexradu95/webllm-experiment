@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
-import { useDebug } from '../context/DebugContext';
 import { AlertCircle, X, ChevronLeft, ChevronRight, Trash2, Info } from 'lucide-react';
+import { useDebug } from '../context/DebugContext.jsx';
 
 // Constants for token limits
 const MAX_TOTAL_LENGTH = 512;
