@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useDebug } from '../context/DebugContext';
+import { useDebug } from '../context/DebugContext.tsx';
 
 export function useWorker() {
     const worker = useRef(null);

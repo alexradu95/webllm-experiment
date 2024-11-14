@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useDebug } from '../context/DebugContext';
+import { useDebug } from '../context/DebugContext.tsx';
 
 export function LoadingProgress({ status, error }) {
     const { logs } = useDebug();

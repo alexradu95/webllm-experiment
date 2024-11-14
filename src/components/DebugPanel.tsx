@@ -1,4 +1,5 @@
-import { useDebug, DEBUG_LEVELS } from '../context/DebugContext';
+import React from "react";
+import { DEBUG_LEVELS, useDebug } from "../context/DebugContext.js";
 
 export function DebugPanel() {
     const {

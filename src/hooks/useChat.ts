@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
-import { useWorker } from './useWorker';
-import { useDebug } from '../context/DebugContext';
+import { useWorker } from './useWorker.ts';
+import { useDebug } from '../context/DebugContext.tsx';
 
 export function useChat() {
     const [messages, setMessages] = useState([]);

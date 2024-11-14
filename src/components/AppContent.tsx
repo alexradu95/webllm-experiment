@@ -1,10 +1,10 @@
 import React from 'react';
-import { MessageList } from './MessageList.js';
+import { MessageList } from './MessageList.tsx';
 import { ChatInput } from './ChatInput.tsx';
-import { StatusBar } from './StatusBar.js';
-import { ContextPanel } from './ContextPanel.js';
+import { StatusBar } from './StatusBar.tsx';
+import { ContextPanel } from './ContextPanel.tsx';
 import { LoadingProgress } from "./LoadingProgress.tsx";
-import { useChat } from "../hooks/useChat.js";
+import { useChat } from "../hooks/useChat.ts";
 
 const AppContent: React.FC = () => {
     const {

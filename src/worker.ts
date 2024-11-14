@@ -1,5 +1,5 @@
 import { AutoTokenizer, AutoModelForCausalLM, TextStreamer } from "@huggingface/transformers";
-import { addContext, removeContext, clearContexts, listContexts } from './services/contextHandler';
+import { addContext, removeContext, clearContexts, listContexts } from './services/contextHandler.ts';
 
 // Configuration
 const MODEL_ID = "onnx-community/Llama-3.2-1B-Instruct-q4f16";

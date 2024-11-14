@@ -589,7 +589,7 @@ src/
 
 ## **Example Refactor**
 
-**Before (In `useChat.js`):**
+**Before (In `useChat.ts`):**
 
 ```javascript
 import { useCallback, useState } from 'react';
