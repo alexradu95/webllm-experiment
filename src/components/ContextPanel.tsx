@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { AlertCircle, X, ChevronLeft, ChevronRight, Trash2, Info } from 'lucide-react';
 import { useDebug } from '../context/DebugContext.tsx';
 import React from 'react';

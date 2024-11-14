@@ -1,139 +1,55 @@
-import React, { useState, useEffect } from 'react';
-import { useDebug } from '../context/DebugContext';
-import { LoadingProgressProps, StageStatus } from '@/types';
+import React from 'react';
+import { Loader2 } from 'lucide-react';
+import type { ChatStatus } from '@/types';
 
-interface Stage {
-    status: StageStatus;
-    progress: number;
-}
-
-interface Stages {
-    webgpu: Stage;
-    tokenizer: Stage;
-    model: Stage;
+interface LoadingProgressProps {
+    status: ChatStatus;
+    error: string | null;
 }
 
 export function LoadingProgress({ status, error }: LoadingProgressProps): JSX.Element | null {
-    const { logs } = useDebug();
-    const [stages, setStages] = useState<Stages>({
-        webgpu: { status: 'pending', progress: 0 },
-        tokenizer: { status: 'pending', progress: 0 },
-        model: { status: 'pending', progress: 0 }
-    });
-
-    // Process debug logs to update stages
-    useEffect(() => {
-        const loadingLogs = logs.filter(log =>
-            log.level === 'info' &&
-            log.message.toLowerCase().includes('loading')
-        );
-
-        setStages(prev => {
-            const newStages = { ...prev };
-
-            loadingLogs.forEach(log => {
-                if (log.message.includes('WebGPU')) {
-                    newStages.webgpu.status = 'complete';
-                    newStages.webgpu.progress = 100;
-                }
-                if (log.message.includes('tokenizer')) {
-                    newStages.tokenizer.status = 'complete';
-                    newStages.tokenizer.progress = 100;
-                }
-                if (log.message.includes('model')) {
-                    if (log.message.includes('successfully')) {
-                        newStages.model.status = 'complete';
-                        newStages.model.progress = 100;
-                    } else {
-                        newStages.model.status = 'loading';
-                        // If we have loading time details, we can estimate progress
-                        if (log.details && typeof log.details === 'object' && 'loadTimeMs' in log.details) {
-                            const loadTimeMs = Number(log.details.loadTimeMs);
-                            const progress = Math.min((loadTimeMs / 30000) * 100, 99);
-                            newStages.model.progress = progress;
-                        }
-                    }
-                }
-            });
-
-            return newStages;
-        });
-    }, [logs]);
-
-    // Only show when loading
     if (status !== 'loading') return null;
 
-    // Calculate overall progress
-    const overallProgress = Object.values(stages)
-        .reduce((acc, stage) => acc + stage.progress, 0) / Object.keys(stages).length;
-
-    const stageColors: Record<StageStatus, string> = {
-        pending: 'bg-gray-200',
-        loading: 'bg-blue-500',
-        complete: 'bg-green-500'
-    };
-
     return (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm">
-            <div className="bg-white rounded-xl shadow-xl p-6 max-w-md w-full">
-                <h2 className="text-xl font-semibold mb-4">Loading Llama Model</h2>
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full">
+                <div className="flex flex-col items-center text-center">
+                    {/* Loading Animation */}
+                    <div className="relative w-24 h-24 mb-6">
+                        {/* Outer rotating ring */}
+                        <div className="absolute inset-0 border-4 border-blue-100 rounded-full" />
+                        <div className="absolute inset-0 border-4 border-blue-500 rounded-full border-t-transparent animate-spin" />
 
-                {/* Overall progress */}
-                <div className="mb-6">
-                    <div className="flex justify-between mb-2">
-                        <span className="text-sm font-medium text-gray-700">Overall Progress</span>
-                        <span className="text-sm text-gray-500">{Math.round(overallProgress)}%</span>
-                    </div>
-                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                        <div
-                            className="h-full bg-blue-500 transition-all duration-300"
-                            style={{ width: `${overallProgress}%` }}
-                        />
-                    </div>
-                </div>
-
-                {/* Individual stages */}
-                <div className="space-y-4">
-                    {(Object.entries(stages) as [string, Stage][]).map(([stageName, { status, progress }]) => (
-                        <div key={stageName}>
-                            <div className="flex justify-between mb-1">
-                                <div className="flex items-center">
-                                    <span className="text-sm capitalize">{stageName}</span>
-                                    {status === 'complete' && (
-                                        <svg className="w-4 h-4 ml-2 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                        </svg>
-                                    )}
-                                </div>
-                                <span className="text-sm text-gray-500">{Math.round(progress)}%</span>
-                            </div>
-                            <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                                <div
-                                    className={`h-full transition-all duration-300 ${stageColors[status]}`}
-                                    style={{ width: `${progress}%` }}
-                                />
-                            </div>
+                        {/* Inner icon */}
+                        <div className="absolute inset-0 flex items-center justify-center">
+                            <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
                         </div>
-                    ))}
-                </div>
-
-                {/* Error display */}
-                {error && (
-                    <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-                        <p className="text-sm text-red-600">{error}</p>
                     </div>
-                )}
 
-                {/* Debug logs summary */}
-                <div className="mt-4 pt-4 border-t">
-                    <div className="max-h-32 overflow-y-auto text-xs text-gray-500">
-                        {logs.slice(-5).map((log, i) => (
-                            <div key={i} className="mb-1">
-                                <span className="text-gray-400">[{new Date(log.timestamp).toLocaleTimeString()}]</span>{' '}
-                                {log.message}
-                            </div>
-                        ))}
+                    {/* Loading Text */}
+                    <h2 className="text-xl font-semibold text-gray-900 mb-2">
+                        Loading Llama Model
+                    </h2>
+                    <p className="text-gray-500 mb-6">
+                        This may take a few moments...
+                    </p>
+
+                    {/* Progress Pulse Bar */}
+                    <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                        <div className="h-full bg-blue-500 rounded-full w-full animate-pulse" />
                     </div>
+
+                    {/* Loading Tips */}
+                    <div className="mt-6 text-sm text-gray-500">
+                        <p className="animate-pulse">Initializing WebGPU and loading model weights...</p>
+                    </div>
+
+                    {/* Error Message if any */}
+                    {error && (
+                        <div className="mt-4 p-3 bg-red-50 border border-red-100 rounded-lg w-full">
+                            <p className="text-sm text-red-600">{error}</p>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

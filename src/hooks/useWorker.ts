@@ -6,7 +6,7 @@ import type {
     WorkerResponse,
     Message,
     DebugContextValue
-} from '../types';
+} from '@/types';
 
 interface UseWorkerReturn {
     status: ChatStatus;

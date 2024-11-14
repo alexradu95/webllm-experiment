@@ -1,6 +1,5 @@
 import React, { useState, FormEvent } from 'react';
 import { useDebug } from '../context/DebugContext.tsx';
-import { ContextService } from '../services/contextService';
 
 interface Context {
     id: string;

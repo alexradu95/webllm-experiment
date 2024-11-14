@@ -1,6 +1,6 @@
 import { pipeline, Pipeline } from '@huggingface/transformers';
 import { IContextService } from './interfaces.ts';
-import {Context} from "../types/index.ts";
+import {Context} from "@/types";
 
 type FeatureExtractionPipeline = Pipeline & {
     (input: string, options?: any): Promise<{ data: Float32Array }>;

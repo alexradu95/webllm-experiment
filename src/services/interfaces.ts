@@ -1,4 +1,4 @@
-import {Context} from "../types/index.ts";
+import {Context} from "@/types";
 
 export interface IContextService {
     initialize(): Promise<void>;

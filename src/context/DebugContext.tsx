@@ -4,7 +4,7 @@ import type {
     DebugContextState,
     DebugLevel,
     DebugLog
-} from '../types';
+} from '@/types';
 
 const DebugContext = createContext<DebugContextValue | null>(null);
 
