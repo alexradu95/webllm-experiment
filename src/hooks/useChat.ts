@@ -1,7 +1,9 @@
 import { useCallback, useState } from 'react';
-import { ChatStatus, Context, DebugContextValue, Message } from '../types';
+import {ChatStatus, Context, DebugContextValue, DebugLevel, Message} from '@/types';
 import { useWorker } from './useWorker';
 import { useDebug } from '../context/DebugContext';
+
+type LogLevel = DebugLevel;
 
 interface UseChatReturn {
     messages: Message[];
@@ -52,6 +54,13 @@ export function useChat(): UseChatReturn {
         });
     }, []);
 
+    const handleError = (level: LogLevel, message: string, error: unknown) => {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        addLog(level, message, { error: errorMessage });
+        return errorMessage;
+    };
+
+
     const sendMessage = useCallback(async (userMessage: string) => {
         if (!userMessage.trim()) return;
 
@@ -67,11 +76,11 @@ export function useChat(): UseChatReturn {
                 updateLastMessage
             );
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-            addLog('error', 'Failed to send message', { error: errorMessage });
+            handleError('error', 'Failed to send message', error);
             updateLastMessage('\n\nSorry, an error occurred while generating the response.');
         }
     }, [messages, generateResponse, addMessage, updateLastMessage, addLog, createMessage]);
+
 
     const addContext = useCallback(async (
         text: string,
@@ -87,7 +96,7 @@ export function useChat(): UseChatReturn {
                 createdAt: new Date().toISOString()
             });
 
-            const updatedContexts = await sendContextCommand('list') as Context[];
+            const updatedContexts = await sendContextCommand('list', null) as Context[];
             setContexts(updatedContexts);
             addLog('info', 'Context added successfully', { id });
             return id;
@@ -107,7 +116,7 @@ export function useChat(): UseChatReturn {
         try {
             setContextError(null);
             await sendContextCommand('remove', { id });
-            const updatedContexts = await sendContextCommand('list') as Context[];
+            const updatedContexts = await sendContextCommand('list', null) as Context[];
             setContexts(updatedContexts);
             addLog('info', 'Context removed successfully', { id });
         } catch (error) {
@@ -121,7 +130,7 @@ export function useChat(): UseChatReturn {
     const clearContexts = useCallback(async (): Promise<void> => {
         try {
             setContextError(null);
-            await sendContextCommand('clear');
+            await sendContextCommand('clear', null);
             setContexts([]);
             addLog('info', 'All contexts cleared');
         } catch (error) {

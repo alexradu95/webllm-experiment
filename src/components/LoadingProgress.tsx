@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useDebug } from '../context/DebugContext';
-import { LoadingProgressProps, StageStatus } from '../types';
+import { LoadingProgressProps, StageStatus } from '@/types';
 
 interface Stage {
     status: StageStatus;

@@ -20,10 +20,10 @@ const GENERATION_CONFIG = {
   stop_sequences: ["Human:", "Assistant:", "\n\n"]
 } as const;
 
-// Global state
+// Global state - use any for transformer types since they don't have TypeScript definitions
 interface WorkerState {
-  tokenizer: any | null;
-  model: any | null;
+  tokenizer: any;
+  model: any;
 }
 
 const state: WorkerState = {
@@ -55,15 +55,12 @@ async function selectRelevantContexts(query: string): Promise<string> {
   const contexts = listContexts();
   if (contexts.length === 0) return "";
 
-  const queryTokens = await getTokenCount(query);
   const availableTokens = MAX_CONTEXT_LENGTH;
-
-  // Sort contexts by creation date (most recent first)
   const sortedContexts = [...contexts].sort((a, b) =>
       new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
 
-  let selectedContexts = [];
+  const selectedContexts = [];
   let totalTokens = 0;
 
   for (const context of sortedContexts) {
@@ -75,9 +72,7 @@ async function selectRelevantContexts(query: string): Promise<string> {
     }
   }
 
-  return selectedContexts
-      .map(ctx => ctx.text)
-      .join('\n\n');
+  return selectedContexts.map(ctx => ctx.text).join('\n\n');
 }
 
 async function truncateMessages(messages: Message[], maxTokens: number): Promise<Message[]> {
@@ -106,24 +101,18 @@ async function generate(messages: Message[]): Promise<void> {
   try {
     const lastMessage = messages[messages.length - 1];
     const relevantContexts = await selectRelevantContexts(lastMessage.content);
-
-    // Calculate available tokens
     const contextTokenCount = await getTokenCount(relevantContexts);
-    const availableTokens = MAX_MESSAGE_LENGTH;
+    const truncatedMessages = await truncateMessages(messages, MAX_MESSAGE_LENGTH);
 
-    // Truncate messages to fit
-    const truncatedMessages = await truncateMessages(messages, availableTokens);
-
-    // Prepare messages with context
     let contextualizedMessages = truncatedMessages;
     if (relevantContexts) {
-      contextualizedMessages = [
-        {
-          role: 'system',
-          content: `Consider this context:\n\n${relevantContexts}\n\nRespond based on this context when relevant.`
-        },
-        ...truncatedMessages
-      ];
+      const systemMessage: Message = {
+        id: crypto.randomUUID(),
+        role: 'system',
+        content: `Consider this context:\n\n${relevantContexts}\n\nRespond based on this context when relevant.`,
+        timestamp: new Date().toISOString()
+      };
+      contextualizedMessages = [systemMessage, ...truncatedMessages];
     }
 
     sendDebugInfo('debug', 'Starting generation', {
@@ -133,13 +122,13 @@ async function generate(messages: Message[]): Promise<void> {
       totalMessages: contextualizedMessages.length
     });
 
-    // Prepare input tokens
+    // Use any for transformer-specific options
     const inputs = state.tokenizer.apply_chat_template(contextualizedMessages, {
       add_generation_prompt: true,
       return_dict: true
     });
 
-    // Set up streaming
+    // @ts-ignore
     const streamer = new TextStreamer(state.tokenizer, {
       skip_prompt: true,
       skip_special_tokens: true,
@@ -148,7 +137,6 @@ async function generate(messages: Message[]): Promise<void> {
       }
     });
 
-    // Generate response
     const startTime = performance.now();
     await state.model.generate({
       ...inputs,
@@ -179,19 +167,15 @@ async function handleContextCommand(command: string, data: unknown, messageId: n
       case 'add':
         result = addContext(data, state.tokenizer, MAX_CONTEXT_LENGTH, MAX_TOTAL_LENGTH);
         break;
-
       case 'remove':
         result = removeContext(data as { id: string });
         break;
-
       case 'clear':
         result = clearContexts();
         break;
-
       case 'list':
         result = listContexts();
         break;
-
       default:
         throw new Error(`Unknown context command: ${command}`);
     }
@@ -211,23 +195,35 @@ async function handleContextCommand(command: string, data: unknown, messageId: n
   }
 }
 
-// Initialize section
+// WebGPU types
+interface GPUDeviceDescriptor {
+  requiredFeatures?: string[];
+  requiredLimits?: Record<string, number>;
+}
+
 async function checkWebGPU(): Promise<void> {
   sendDebugInfo('debug', 'Checking WebGPU support');
 
-  const adapter = await navigator.gpu?.requestAdapter();
+  // Use any for WebGPU since the types might not be fully available
+  const gpu = (navigator as any).gpu;
+  const adapter = await gpu?.requestAdapter();
+
   if (!adapter) {
     throw new Error("WebGPU not supported");
   }
 
-  const device = await adapter.requestDevice();
+  const device = await adapter.requestDevice({
+    requiredFeatures: [],
+    requiredLimits: {}
+  });
+
   if (!device) {
     throw new Error("Failed to get WebGPU device");
   }
 
   sendDebugInfo('info', 'WebGPU device initialized', {
     adapter: adapter.name,
-    features: Array.from(device.features).map(f => f.toString())
+    features: Array.from(device.features).map(f => String(f))
   });
 }
 
@@ -236,19 +232,16 @@ async function initialize(): Promise<boolean> {
     await checkWebGPU();
     sendDebugInfo('info', 'WebGPU initialized successfully');
 
-    // Load tokenizer
     const tokenizerStartTime = performance.now();
     state.tokenizer = await AutoTokenizer.from_pretrained(MODEL_ID);
     sendDebugInfo('info', 'Tokenizer loaded successfully', {
       loadTimeMs: Math.round(performance.now() - tokenizerStartTime)
     });
 
-    // Load model
     const modelStartTime = performance.now();
+    // @ts-ignore
     state.model = await AutoModelForCausalLM.from_pretrained(MODEL_ID, {
-      dtype: "q4f16",
       device: "webgpu",
-      revision: "main",
       quantized: true,
       cache: true
     });
@@ -267,7 +260,6 @@ async function initialize(): Promise<boolean> {
   }
 }
 
-// Message handler
 self.addEventListener("message", async ({ data: { type, command, data, messageId } }: MessageEvent<WorkerMessage>) => {
   try {
     sendDebugInfo('debug', `Received message: ${type}`);
@@ -276,22 +268,18 @@ self.addEventListener("message", async ({ data: { type, command, data, messageId
       case "check":
         await checkWebGPU();
         break;
-
       case "load":
         await initialize();
         self.postMessage({ status: 'ready' } as WorkerResponse);
         break;
-
       case "generate":
         await generate(data as Message[]);
         break;
-
       case "context":
         if (command) {
           await handleContextCommand(command, data, messageId || Date.now());
         }
         break;
-
       default:
         throw new Error(`Unknown message type: ${type}`);
     }
