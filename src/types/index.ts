@@ -102,6 +102,8 @@ export interface StatusBarProps {
     onInitialize: () => void;
 }
 
+export type StageStatus = 'pending' | 'loading' | 'complete';
+
 export interface LoadingProgressProps {
     status: ChatStatus;
     error: string | null;
