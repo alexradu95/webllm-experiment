@@ -1,9 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { useDebug } from '../context/DebugContext.tsx';
+import { useDebug } from '../context/DebugContext';
+import { LoadingProgressProps, StageStatus } from '../types';
 
-export function LoadingProgress({ status, error }) {
+interface Stage {
+    status: StageStatus;
+    progress: number;
+}
+
+interface Stages {
+    webgpu: Stage;
+    tokenizer: Stage;
+    model: Stage;
+}
+
+export function LoadingProgress({ status, error }: LoadingProgressProps): JSX.Element | null {
     const { logs } = useDebug();
-    const [stages, setStages] = useState({
+    const [stages, setStages] = useState<Stages>({
         webgpu: { status: 'pending', progress: 0 },
         tokenizer: { status: 'pending', progress: 0 },
         model: { status: 'pending', progress: 0 }
@@ -35,8 +47,9 @@ export function LoadingProgress({ status, error }) {
                     } else {
                         newStages.model.status = 'loading';
                         // If we have loading time details, we can estimate progress
-                        if (log.details?.loadTimeMs) {
-                            const progress = Math.min((log.details.loadTimeMs / 30000) * 100, 99);
+                        if (log.details && typeof log.details === 'object' && 'loadTimeMs' in log.details) {
+                            const loadTimeMs = Number(log.details.loadTimeMs);
+                            const progress = Math.min((loadTimeMs / 30000) * 100, 99);
                             newStages.model.progress = progress;
                         }
                     }
@@ -54,7 +67,7 @@ export function LoadingProgress({ status, error }) {
     const overallProgress = Object.values(stages)
         .reduce((acc, stage) => acc + stage.progress, 0) / Object.keys(stages).length;
 
-    const stageColors = {
+    const stageColors: Record<StageStatus, string> = {
         pending: 'bg-gray-200',
         loading: 'bg-blue-500',
         complete: 'bg-green-500'
@@ -81,7 +94,7 @@ export function LoadingProgress({ status, error }) {
 
                 {/* Individual stages */}
                 <div className="space-y-4">
-                    {Object.entries(stages).map(([stageName, { status, progress }]) => (
+                    {(Object.entries(stages) as [string, Stage][]).map(([stageName, { status, progress }]) => (
                         <div key={stageName}>
                             <div className="flex justify-between mb-1">
                                 <div className="flex items-center">

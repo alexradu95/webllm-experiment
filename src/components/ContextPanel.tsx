@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { AlertCircle, X, ChevronLeft, ChevronRight, Trash2, Info } from 'lucide-react';
-import { useDebug } from '../context/DebugContext.js';
+import { useDebug } from '../context/DebugContext.tsx';
 import React from 'react';
 
 // Constants for token limits

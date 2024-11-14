@@ -1,15 +1,40 @@
-import { useEffect, useRef, useState } from 'react';
-import { useDebug } from '../context/DebugContext.tsx';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { useDebug } from '../context/DebugContext';
+import type {
+    ChatStatus,
+    WorkerMessage,
+    WorkerResponse,
+    Message,
+    DebugContextValue
+} from '../types';
 
-export function useWorker() {
-    const worker = useRef(null);
-    const [status, setStatus] = useState('idle');
-    const [error, setError] = useState(null);
-    const { addLog } = useDebug();
+interface UseWorkerReturn {
+    status: ChatStatus;
+    error: string | null;
+    initializeWorker: () => void;
+    generateResponse: (
+        messages: Message[],
+        userMessage: string,
+        onUpdate: (content: string) => void
+    ) => Promise<void>;
+    sendContextCommand: (
+        command: string,
+        data: unknown
+    ) => Promise<unknown>;
+}
+
+export function useWorker(): UseWorkerReturn {
+    const worker = useRef<Worker | null>(null);
+    const [status, setStatus] = useState<ChatStatus>('idle');
+    const [error, setError] = useState<string | null>(null);
+    const { addLog } = useDebug() as DebugContextValue;
 
     useEffect(() => {
         if (!worker.current) {
-            worker.current = new Worker(new URL('../worker.ts', import.meta.url), { type: 'module' });
+            worker.current = new Worker(
+                new URL('../worker.ts', import.meta.url),
+                { type: 'module' }
+            );
             worker.current.postMessage({ type: 'check' });
             addLog('info', 'Worker initialized');
         }
@@ -22,14 +47,22 @@ export function useWorker() {
         };
     }, [addLog]);
 
-    const initializeWorker = () => {
+    const initializeWorker = useCallback(() => {
         setStatus('loading');
-        worker.current.postMessage({ type: 'load' });
+        worker.current?.postMessage({ type: 'load' });
         addLog('info', 'Starting worker initialization');
-    };
+    }, [addLog]);
 
-    const sendContextCommand = (command, data) => {
+    const sendContextCommand = useCallback((
+        command: string,
+        data: unknown
+    ): Promise<unknown> => {
         return new Promise((resolve, reject) => {
+            if (!worker.current) {
+                reject(new Error('Worker not initialized'));
+                return;
+            }
+
             if (status !== 'ready' && command !== 'list') {
                 reject(new Error('Worker not ready'));
                 return;
@@ -37,13 +70,12 @@ export function useWorker() {
 
             const messageId = Date.now();
 
-            const handleResponse = ({ data: responseData }) => {
+            const handleResponse = ({ data: responseData }: MessageEvent<WorkerResponse>) => {
                 if (responseData.messageId === messageId) {
-                    worker.current.removeEventListener('message', handleResponse);
+                    worker.current?.removeEventListener('message', handleResponse);
 
                     if (responseData.status === 'error') {
-                        // Don't set global error state for context errors
-                        reject(new Error(responseData.data));
+                        reject(new Error(responseData.data as string));
                     } else {
                         resolve(responseData.data);
                     }
@@ -52,17 +84,23 @@ export function useWorker() {
 
             worker.current.addEventListener('message', handleResponse);
 
-            worker.current.postMessage({
+            const message: WorkerMessage = {
                 type: 'context',
                 command,
                 data,
                 messageId
-            });
-        });
-    };
+            };
 
-    const generateResponse = (messages, userMessage, onUpdate) => {
-        if (status !== 'ready') {
+            worker.current.postMessage(message);
+        });
+    }, [status]);
+
+    const generateResponse = useCallback(async (
+        messages: Message[],
+        userMessage: string,
+        onUpdate: (content: string) => void
+    ): Promise<void> => {
+        if (status !== 'ready' || !worker.current) {
             const error = new Error('Worker not ready');
             addLog('error', 'Generation attempted while worker not ready');
             throw error;
@@ -70,27 +108,31 @@ export function useWorker() {
 
         addLog('debug', 'Starting response generation', { messages });
 
-        worker.current.postMessage({
-            type: 'generate',
-            data: messages
+        return new Promise((resolve, reject) => {
+            const handleMessage = ({ data }: MessageEvent<WorkerResponse>) => {
+                if (data.status === 'update' && data.output) {
+                    onUpdate(data.output);
+                } else if (data.status === 'error') {
+                    setError(data.data as string);
+                    setStatus('error');
+                    worker.current?.removeEventListener('message', handleMessage);
+                    reject(new Error(data.data as string));
+                } else if (data.status === 'success') {
+                    worker.current?.removeEventListener('message', handleMessage);
+                    resolve();
+                }
+            };
+
+            worker.current?.addEventListener('message', handleMessage);
+            worker.current?.postMessage({
+                type: 'generate',
+                data: messages
+            });
         });
-
-        const handleMessage = ({ data }) => {
-            if (data.status === 'update' && typeof onUpdate === 'function') {
-                onUpdate(data.output);
-            } else if (data.status === 'error') {
-                // Set global error state only for generation errors
-                setError(data.data);
-                setStatus('error');
-            }
-        };
-
-        worker.current.addEventListener('message', handleMessage);
-        return () => worker.current.removeEventListener('message', handleMessage);
-    };
+    }, [status, addLog]);
 
     useEffect(() => {
-        const messageHandler = ({ data }) => {
+        const messageHandler = ({ data }: MessageEvent<WorkerResponse>) => {
             switch (data.status) {
                 case 'ready':
                     setStatus('ready');
@@ -99,22 +141,28 @@ export function useWorker() {
                     break;
 
                 case 'error':
-                    // Only set global error for non-context errors
                     if (!data.messageId) {
-                        setError(data.data);
+                        setError(data.data as string);
                         setStatus('error');
                     }
                     addLog('error', 'Worker error', { error: data.data });
                     break;
 
                 case 'debug':
-                    addLog(data.data.level, data.data.message, data.data.details);
+                    if (typeof data.data === 'object' && data.data !== null) {
+                        const debugData = data.data as {
+                            level: DebugContextValue['level'];
+                            message: string;
+                            details?: unknown;
+                        };
+                        addLog(debugData.level, debugData.message, debugData.details);
+                    }
                     break;
             }
         };
 
-        worker.current.addEventListener('message', messageHandler);
-        return () => worker.current.removeEventListener('message', messageHandler);
+        worker.current?.addEventListener('message', messageHandler);
+        return () => worker.current?.removeEventListener('message', messageHandler);
     }, [addLog]);
 
     return {

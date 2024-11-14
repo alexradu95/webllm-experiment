@@ -1,5 +1,6 @@
 import { AutoTokenizer, AutoModelForCausalLM, TextStreamer } from "@huggingface/transformers";
-import { addContext, removeContext, clearContexts, listContexts } from './services/contextHandler.ts';
+import { addContext, removeContext, clearContexts, listContexts } from './services/contextHandler';
+import type { WorkerMessage, WorkerResponse, Message } from './types';
 
 // Configuration
 const MODEL_ID = "onnx-community/Llama-3.2-1B-Instruct-q4f16";
@@ -17,13 +18,20 @@ const GENERATION_CONFIG = {
   temperature: 0.7,
   top_p: 0.9,
   stop_sequences: ["Human:", "Assistant:", "\n\n"]
-};
+} as const;
 
 // Global state
-let tokenizer = null;
-let model = null;
+interface WorkerState {
+  tokenizer: any | null;
+  model: any | null;
+}
 
-function sendDebugInfo(level, message, details = null) {
+const state: WorkerState = {
+  tokenizer: null,
+  model: null
+};
+
+function sendDebugInfo(level: string, message: string, details: unknown = null): void {
   self.postMessage({
     status: 'debug',
     data: {
@@ -32,36 +40,36 @@ function sendDebugInfo(level, message, details = null) {
       details,
       timestamp: new Date().toISOString()
     }
-  });
+  } as WorkerResponse);
 }
 
-async function getTokenCount(text) {
-  if (!tokenizer) {
+async function getTokenCount(text: string): Promise<number> {
+  if (!state.tokenizer) {
     throw new Error("Tokenizer not initialized");
   }
-  const tokens = await tokenizer.tokenize(text);
+  const tokens = await state.tokenizer.tokenize(text);
   return tokens.length;
 }
 
-async function selectRelevantContexts(query) {
+async function selectRelevantContexts(query: string): Promise<string> {
   const contexts = listContexts();
   if (contexts.length === 0) return "";
 
   const queryTokens = await getTokenCount(query);
-  let availableTokens = MAX_CONTEXT_LENGTH;
+  const availableTokens = MAX_CONTEXT_LENGTH;
 
   // Sort contexts by creation date (most recent first)
   const sortedContexts = [...contexts].sort((a, b) =>
-      new Date(b.createdAt) - new Date(a.createdAt)
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
 
   let selectedContexts = [];
   let totalTokens = 0;
 
   for (const context of sortedContexts) {
-    if (totalTokens + context.tokens <= availableTokens) {
+    if (totalTokens + (context.tokens || 0) <= availableTokens) {
       selectedContexts.push(context);
-      totalTokens += context.tokens;
+      totalTokens += context.tokens || 0;
     } else {
       break;
     }
@@ -72,10 +80,10 @@ async function selectRelevantContexts(query) {
       .join('\n\n');
 }
 
-async function truncateMessages(messages, maxTokens) {
+async function truncateMessages(messages: Message[], maxTokens: number): Promise<Message[]> {
   const reversedMessages = [...messages].reverse();
   let totalTokens = 0;
-  let truncatedMessages = [];
+  const truncatedMessages: Message[] = [];
 
   for (const message of reversedMessages) {
     const tokens = await getTokenCount(message.content);
@@ -90,8 +98,8 @@ async function truncateMessages(messages, maxTokens) {
   return truncatedMessages;
 }
 
-async function generate(messages) {
-  if (!tokenizer || !model) {
+async function generate(messages: Message[]): Promise<void> {
+  if (!state.tokenizer || !state.model) {
     throw new Error("Model not initialized");
   }
 
@@ -126,23 +134,23 @@ async function generate(messages) {
     });
 
     // Prepare input tokens
-    const inputs = tokenizer.apply_chat_template(contextualizedMessages, {
+    const inputs = state.tokenizer.apply_chat_template(contextualizedMessages, {
       add_generation_prompt: true,
       return_dict: true
     });
 
     // Set up streaming
-    const streamer = new TextStreamer(tokenizer, {
+    const streamer = new TextStreamer(state.tokenizer, {
       skip_prompt: true,
       skip_special_tokens: true,
-      callback_function: output => {
-        self.postMessage({ status: 'update', output });
+      callback_function: (output: string) => {
+        self.postMessage({ status: 'update', output } as WorkerResponse);
       }
     });
 
     // Generate response
     const startTime = performance.now();
-    await model.generate({
+    await state.model.generate({
       ...inputs,
       ...GENERATION_CONFIG,
       streamer
@@ -153,25 +161,27 @@ async function generate(messages) {
       generateTimeMs: Math.round(generateTime)
     });
 
+    self.postMessage({ status: 'success' } as WorkerResponse);
+
   } catch (error) {
     sendDebugInfo('error', 'Generation failed', {
-      error: error.message,
-      stack: error.stack
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
     });
     throw error;
   }
 }
 
-async function handleContextCommand(command, data, messageId) {
+async function handleContextCommand(command: string, data: unknown, messageId: number): Promise<void> {
   try {
     let result;
     switch (command) {
       case 'add':
-        result = addContext(data, tokenizer, MAX_CONTEXT_LENGTH, MAX_TOTAL_LENGTH);
+        result = addContext(data, state.tokenizer, MAX_CONTEXT_LENGTH, MAX_TOTAL_LENGTH);
         break;
 
       case 'remove':
-        result = removeContext(data.id);
+        result = removeContext(data as { id: string });
         break;
 
       case 'clear':
@@ -190,19 +200,19 @@ async function handleContextCommand(command, data, messageId) {
       status: 'success',
       messageId,
       data: result
-    });
+    } as WorkerResponse);
   } catch (error) {
     sendDebugInfo('error', `Context command failed: ${command}`, { error });
     self.postMessage({
       status: 'error',
       messageId,
-      data: error.message
-    });
+      data: error instanceof Error ? error.message : 'Unknown error'
+    } as WorkerResponse);
   }
 }
 
 // Initialize section
-async function checkWebGPU() {
+async function checkWebGPU(): Promise<void> {
   sendDebugInfo('debug', 'Checking WebGPU support');
 
   const adapter = await navigator.gpu?.requestAdapter();
@@ -217,25 +227,25 @@ async function checkWebGPU() {
 
   sendDebugInfo('info', 'WebGPU device initialized', {
     adapter: adapter.name,
-    features: [...device.features].map(f => f.toString())
+    features: Array.from(device.features).map(f => f.toString())
   });
 }
 
-async function initialize() {
+async function initialize(): Promise<boolean> {
   try {
     await checkWebGPU();
     sendDebugInfo('info', 'WebGPU initialized successfully');
 
     // Load tokenizer
     const tokenizerStartTime = performance.now();
-    tokenizer = await AutoTokenizer.from_pretrained(MODEL_ID);
+    state.tokenizer = await AutoTokenizer.from_pretrained(MODEL_ID);
     sendDebugInfo('info', 'Tokenizer loaded successfully', {
       loadTimeMs: Math.round(performance.now() - tokenizerStartTime)
     });
 
     // Load model
     const modelStartTime = performance.now();
-    model = await AutoModelForCausalLM.from_pretrained(MODEL_ID, {
+    state.model = await AutoModelForCausalLM.from_pretrained(MODEL_ID, {
       dtype: "q4f16",
       device: "webgpu",
       revision: "main",
@@ -249,13 +259,16 @@ async function initialize() {
 
     return true;
   } catch (error) {
-    sendDebugInfo('error', 'Initialization failed', { error });
+    sendDebugInfo('error', 'Initialization failed', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
+    });
     throw error;
   }
 }
 
 // Message handler
-self.addEventListener("message", async ({ data: { type, command, data, messageId } }) => {
+self.addEventListener("message", async ({ data: { type, command, data, messageId } }: MessageEvent<WorkerMessage>) => {
   try {
     sendDebugInfo('debug', `Received message: ${type}`);
 
@@ -266,15 +279,17 @@ self.addEventListener("message", async ({ data: { type, command, data, messageId
 
       case "load":
         await initialize();
-        self.postMessage({ status: 'ready' });
+        self.postMessage({ status: 'ready' } as WorkerResponse);
         break;
 
       case "generate":
-        await generate(data);
+        await generate(data as Message[]);
         break;
 
       case "context":
-        await handleContextCommand(command, data, messageId);
+        if (command) {
+          await handleContextCommand(command, data, messageId || Date.now());
+        }
         break;
 
       default:
@@ -283,14 +298,14 @@ self.addEventListener("message", async ({ data: { type, command, data, messageId
   } catch (error) {
     sendDebugInfo('error', 'Worker error handler', {
       type,
-      error: error.message,
-      stack: error.stack
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
     });
 
     self.postMessage({
       status: 'error',
       messageId,
-      data: error.message
-    });
+      data: error instanceof Error ? error.message : 'Unknown error'
+    } as WorkerResponse);
   }
 });
